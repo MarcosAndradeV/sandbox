@@ -12,7 +12,7 @@ int main(int argc, char** argv) {
     nob_cc_inputs(&cmd, "game.c");
     nob_cc_output(&cmd, "build/game");
     nob_cc_flags(&cmd);
-    cmd_append(&cmd, "-ggdb", "-lraylib", "-lGL", "-lm", "-lpthread", "-ldl", "-lrt", "-lX11");
+    cmd_append(&cmd, "-lraylib", "-lGL", "-lm", "-lpthread", "-ldl", "-lrt", "-lX11");
     if(!cmd_run_sync_and_reset(&cmd)) return 1;
 
     if(argc <= 1) return 0;
