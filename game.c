@@ -5,7 +5,7 @@
 #include "nob.h"
 #define da_foreach_rev(Type, it, da) for (Type *it = (da)->items+(da)->count-1; it > (da)->items; --it)
 #include "raylib.h"
-#define GRID_MULT 32
+#define GRID_MULT 128
 #define GRID_SIZE (1 * GRID_MULT)
 #define CELL_SIZE (960 / GRID_MULT)
 #define WINDOW_WIDTH (GRID_SIZE * CELL_SIZE)
@@ -16,7 +16,7 @@
 #define GRIDLINECOLOR BLACK
 #define GRIDLINETICKNESS 0.0f
 #define MOUSEHITBOX 0.1f
-#define SIMULATION_SPEED 10
+#define SIMULATION_SPEED 1
 
 typedef enum {
     CELL_TYPE_NONE,
@@ -76,25 +76,6 @@ int main(void) {
     }
 
     while (!WindowShouldClose()) {
-        frameCounter++;
-        if (frameCounter >= SIMULATION_SPEED) {
-            frameCounter = 0;
-            da_foreach_rev(Cell, it, &grid) {
-                if(it->type == CELL_TYPE_NONE) continue;
-                if(it->type == CELL_TYPE_ROCK) continue;
-                int col = it->rect.x / cell_size;
-                int row = (it->rect.y - UI_OFFSET) / cell_size;
-                switch (it->type) {
-                    case CELL_TYPE_SAND: {
-                        UpdateSand(&grid, it, col, row);
-                    } break;
-                    case CELL_TYPE_WATER: {
-                        UpdateWater(&grid, it, col, row);
-                    } break;
-                    default: break;
-                }
-            }
-        }
 
         da_foreach(Cell, it, &grid) {
             Vector2 mouse_pos = GetMousePosition();
@@ -114,6 +95,26 @@ int main(void) {
                 it->selected = false;
             }
             it->updated = false;
+        }
+
+        frameCounter++;
+        if (frameCounter >= SIMULATION_SPEED) {
+            frameCounter = 0;
+            da_foreach_rev(Cell, it, &grid) {
+                if(it->type == CELL_TYPE_NONE) continue;
+                if(it->type == CELL_TYPE_ROCK) continue;
+                int col = it->rect.x / cell_size;
+                int row = (it->rect.y - UI_OFFSET) / cell_size;
+                switch (it->type) {
+                    case CELL_TYPE_SAND: {
+                        UpdateSand(&grid, it, col, row);
+                    } break;
+                    case CELL_TYPE_WATER: {
+                        UpdateWater(&grid, it, col, row);
+                    } break;
+                    default: break;
+                }
+            }
         }
 
         BeginDrawing();
@@ -173,9 +174,9 @@ void UpdateSand(Grid*grid, Cell*c, int col, int row) {
 bool UpdateCell(Grid* grid, Cell* c, Cell_Type old_type, Cell_Type new_type, Cell_Type next_type, size_t next_pos) {
     if(next_pos < grid->count) {
         if(grid->items[next_pos].type == old_type) {
-            c->type = new_type;
             grid->items[next_pos].type = next_type;
             grid->items[next_pos].updated = true;
+            c->type = new_type;
             return true;
         }
     }
@@ -185,20 +186,17 @@ bool UpdateCell(Grid* grid, Cell* c, Cell_Type old_type, Cell_Type new_type, Cel
 void UpdateWater(Grid*grid, Cell*c, int col, int row) {
     if(c->updated) return;
     c->updated = true;
-
     size_t down = col + (row+1) * GRID_SIZE;
-    if(UpdateCell(grid, c, CELL_TYPE_NONE, CELL_TYPE_NONE, CELL_TYPE_WATER, down)) return;
-
     size_t down_left = (col-1) + (row+1) * GRID_SIZE;
-    if(UpdateCell(grid, c, CELL_TYPE_NONE, CELL_TYPE_NONE, CELL_TYPE_WATER, down_left)) return;
-
     size_t down_right = (col+1) + (row+1) * GRID_SIZE;
-    if(UpdateCell(grid, c, CELL_TYPE_NONE, CELL_TYPE_NONE, CELL_TYPE_WATER, down_right)) return;
-
     size_t left = (col-1) + row * GRID_SIZE;
-    if(UpdateCell(grid, c, CELL_TYPE_NONE, CELL_TYPE_NONE, CELL_TYPE_WATER, left)) return;
-
     size_t right = (col+1) + row * GRID_SIZE;
-    if(UpdateCell(grid, c, CELL_TYPE_NONE, CELL_TYPE_NONE, CELL_TYPE_WATER, right)) return;
+    size_t top = col + (row-1) * GRID_SIZE;
 
+    if(UpdateCell(grid, c, CELL_TYPE_SAND, CELL_TYPE_SAND, CELL_TYPE_WATER, top)) return;
+    if(UpdateCell(grid, c, CELL_TYPE_NONE, CELL_TYPE_NONE, CELL_TYPE_WATER, down)) return;
+    if(UpdateCell(grid, c, CELL_TYPE_NONE, CELL_TYPE_NONE, CELL_TYPE_WATER, down_left)) return;
+    if(UpdateCell(grid, c, CELL_TYPE_NONE, CELL_TYPE_NONE, CELL_TYPE_WATER, down_right)) return;
+    if(UpdateCell(grid, c, CELL_TYPE_NONE, CELL_TYPE_NONE, CELL_TYPE_WATER, left)) return;
+    if(UpdateCell(grid, c, CELL_TYPE_NONE, CELL_TYPE_NONE, CELL_TYPE_WATER, right)) return;
 }
