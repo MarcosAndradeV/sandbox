@@ -62,6 +62,9 @@ void UpdateWater(Grid*grid, Cell*c, int col, int row);
 void UpdateLife(Grid*grid, Cell*c, int col, int row);
 bool SwapCell(Grid *grid, size_t src_pos, size_t dst_pos);
 bool TryMoveCell(Grid *grid, size_t src_pos, size_t dst_pos, Cell_Type allowed_type);
+int CountNeighbors(Grid *grid, int col, int row, Cell_Type type);
+bool HasNeighbor(Grid *grid, int col, int row, Cell_Type type);
+void UpdateMouseRect(Grid* grid);
 
 typedef void (*CellUpdateFn)(Grid*, Cell*, int, int);
 static CellUpdateFn update_table[] = {
@@ -78,6 +81,102 @@ static inline void Update(Grid*grid, Cell*c, int col, int row) {
     if (update_table[c->type]) {
         update_table[c->type](grid, c, col, row);
     }
+}
+
+static Cell_Type curr_place_type;
+
+static Rectangle mouse_rect = (Rectangle) {
+    .width = MOUSEHITBOX,
+    .height = MOUSEHITBOX,
+};
+
+int main(void) {
+    InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "SandBox");
+    SetTargetFPS(60);
+
+    Grid grid = {0};
+    char * legend = temp_sprintf("%dx%d Grid", GRID_SIZE, GRID_SIZE);
+    size_t frameCounter = 0;
+    size_t simulationSpeed = SIMULATION_SPEED_BASE;
+    bool simulationPaused = false;
+
+    for (int row = 0; row < GRID_SIZE; row++) {
+        for (int col = 0; col < GRID_SIZE; col++) {
+            Cell cell = (Cell) {
+                .rect = (Rectangle) {
+                    .x = col * (int)CELL_SIZE,
+                    .y = row * (int)CELL_SIZE + UI_OFFSET,
+                    .width = (int)CELL_SIZE,
+                    .height = (int)CELL_SIZE,
+                },
+                .type = (row == 0 || col == 0) || (row == GRID_SIZE-1 || col == GRID_SIZE-1)  ? CELL_TYPE_BEDROCK : CELL_TYPE_NONE,
+            };
+            da_append(&grid, cell);
+        }
+    }
+
+    while (!WindowShouldClose()) {
+        if(IsKeyDown(KEY_Q)) curr_place_type = CELL_TYPE_NONE;
+        if(IsKeyDown(KEY_W)) curr_place_type = CELL_TYPE_WATER;
+        if(IsKeyDown(KEY_S)) curr_place_type = CELL_TYPE_SAND;
+        if(IsKeyDown(KEY_E)) curr_place_type = CELL_TYPE_ROCK;
+        if(IsKeyDown(KEY_R)) curr_place_type = CELL_TYPE_LIFE;
+        if(IsKeyPressed(KEY_P)) simulationPaused = !simulationPaused;
+        if(IsKeyPressed(KEY_EQUAL)) simulationSpeed = (simulationSpeed > SIMULATION_SPEED_BASE ? simulationSpeed - 1 : SIMULATION_SPEED_BASE);
+        if(IsKeyPressed(KEY_MINUS)) simulationSpeed++;
+
+        if(IsMouseButtonDown(MOUSE_LEFT_BUTTON)) UpdateMouseRect(&grid);
+
+        if(!simulationPaused) frameCounter++;
+        if (frameCounter >= simulationSpeed) {
+            frameCounter = 0;
+            da_foreach_rev(Cell, c, &grid) {
+                if(c->updated) continue;
+                int col = c->rect.x / (int)CELL_SIZE;
+                int row = (c->rect.y - UI_OFFSET) / (int)CELL_SIZE;
+                Update(&grid, c, col, row);
+            }
+        }
+
+        BeginDrawing();
+
+        ClearBackground(BACKGROUND_COLOR);
+
+        DrawText(legend, 10, 10, 20, WHITE);
+
+        da_foreach(Cell, it, &grid) {
+            it->updated = false;
+
+            Color c = Cell_get_color(it);
+
+            DrawRectangleRec(it->rect, c);
+        }
+
+        DrawRectangleLines(0, UI_OFFSET, WINDOW_WIDTH, GRID_SIZE * CELL_SIZE, BLACK);
+
+        EndDrawing();
+    }
+
+    da_free(grid);
+
+    CloseWindow();
+
+    return 0;
+}
+
+void UpdateMouseRect(Grid* grid) {
+    Vector2 mouse_pos = GetMousePosition();
+    mouse_rect.x = mouse_pos.x;
+    mouse_rect.y = mouse_pos.y;
+
+    int col = mouse_rect.x / (int)CELL_SIZE;
+    int row = (mouse_rect.y - UI_OFFSET) / (int)CELL_SIZE;
+
+    size_t pos = col + row * GRID_SIZE;
+    if(pos >= grid->count) return;
+    Cell* c = &grid->items[pos];
+    if(c->type == CELL_TYPE_BEDROCK) return;
+    if(CheckCollisionRecs(c->rect, mouse_rect)) c->type = curr_place_type;
 }
 
 bool SwapCell(Grid *grid, size_t src_pos, size_t dst_pos) {
@@ -207,99 +306,4 @@ void UpdateLife(Grid*grid, Cell*c, int col, int row) {
 
     grid->items[chosen].type = CELL_TYPE_LIFE;
     grid->items[chosen].updated = true;
-}
-
-static Cell_Type curr_place_type;
-
-static Rectangle mouse_rect = (Rectangle) {
-    .width = MOUSEHITBOX,
-    .height = MOUSEHITBOX,
-};
-
-void UpdateMouseRect(Grid* grid) {
-    int col = mouse_rect.x / (int)CELL_SIZE;
-    int row = (mouse_rect.y - UI_OFFSET) / (int)CELL_SIZE;
-    Vector2 mouse_pos = GetMousePosition();
-    mouse_rect.x = mouse_pos.x;
-    mouse_rect.y = mouse_pos.y;
-
-    size_t pos = col + row * GRID_SIZE;
-    if(pos >= grid->count) return;
-    Cell* it = &grid->items[pos];
-    if(it->type == CELL_TYPE_BEDROCK) return;
-    if(CheckCollisionRecs(it->rect, mouse_rect)) it->type = curr_place_type;
-}
-
-int main(void) {
-    InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "SandBox");
-    SetTargetFPS(60);
-
-    Grid grid = {0};
-    char * legend = temp_sprintf("%dx%d Grid", GRID_SIZE, GRID_SIZE);
-    size_t frameCounter = 0;
-    size_t simulationSpeed = SIMULATION_SPEED_BASE;
-    bool simulationPaused = false;
-
-    for (int row = 0; row < GRID_SIZE; row++) {
-        for (int col = 0; col < GRID_SIZE; col++) {
-            Cell cell = (Cell) {
-                .rect = (Rectangle) {
-                    .x = col * (int)CELL_SIZE,
-                    .y = row * (int)CELL_SIZE + UI_OFFSET,
-                    .width = (int)CELL_SIZE,
-                    .height = (int)CELL_SIZE,
-                },
-                .type = (row == 0 || col == 0) || (row == GRID_SIZE-1 || col == GRID_SIZE-1)  ? CELL_TYPE_BEDROCK : CELL_TYPE_NONE,
-            };
-            da_append(&grid, cell);
-        }
-    }
-
-    while (!WindowShouldClose()) {
-        if(IsKeyDown(KEY_Q)) curr_place_type = CELL_TYPE_NONE;
-        if(IsKeyDown(KEY_W)) curr_place_type = CELL_TYPE_WATER;
-        if(IsKeyDown(KEY_S)) curr_place_type = CELL_TYPE_SAND;
-        if(IsKeyDown(KEY_E)) curr_place_type = CELL_TYPE_ROCK;
-        if(IsKeyDown(KEY_R)) curr_place_type = CELL_TYPE_LIFE;
-        if(IsKeyPressed(KEY_P)) simulationPaused = !simulationPaused;
-        if(IsKeyPressed(KEY_EQUAL)) simulationSpeed = (simulationSpeed > SIMULATION_SPEED_BASE ? simulationSpeed - 1 : SIMULATION_SPEED_BASE);
-        if(IsKeyPressed(KEY_MINUS)) simulationSpeed++;
-
-        if(IsMouseButtonDown(MOUSE_LEFT_BUTTON)) UpdateMouseRect(&grid);
-
-        if(!simulationPaused) frameCounter++;
-        if (frameCounter >= simulationSpeed) {
-            frameCounter = 0;
-            da_foreach_rev(Cell, c, &grid) {
-                if(c->updated) continue;
-                int col = c->rect.x / (int)CELL_SIZE;
-                int row = (c->rect.y - UI_OFFSET) / (int)CELL_SIZE;
-                Update(&grid, c, col, row);
-            }
-        }
-
-        BeginDrawing();
-
-        ClearBackground(BACKGROUND_COLOR);
-
-        DrawText(legend, 10, 10, 20, WHITE);
-
-        da_foreach(Cell, it, &grid) {
-            it->updated = false;
-
-            Color c = Cell_get_color(it);
-
-            DrawRectangleRec(it->rect, c);
-        }
-
-        DrawRectangleLines(0, UI_OFFSET, WINDOW_WIDTH, GRID_SIZE * CELL_SIZE, BLACK);
-
-        EndDrawing();
-    }
-
-    da_free(grid);
-
-    CloseWindow();
-
-    return 0;
 }
