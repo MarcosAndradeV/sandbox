@@ -27,7 +27,6 @@ typedef enum {
 
 typedef struct {
     Rectangle rect;
-    Color color;
 
     bool selected;
     bool updated;
@@ -69,7 +68,6 @@ int main(void) {
                     .height = cell_size,
                 },
                 .type = (row == 0 || col == 0) || (row == GRID_SIZE-1 || col == GRID_SIZE-1)  ? CELL_TYPE_ROCK : CELL_TYPE_NONE,
-                .color = BLACK, // ((row + col) % 2 == 0) ? LIGHTCOLOR : DARKCOLOR,
             };
             da_append(&grid, cell);
         }
@@ -144,7 +142,7 @@ int main(void) {
 
             DrawRectangleRec(it->rect, c);
 
-            DrawRectangleLinesEx(it->rect, GRIDLINETICKNESS, GRIDLINECOLOR);
+            // DrawRectangleLinesEx(it->rect, GRIDLINETICKNESS, GRIDLINECOLOR);
         }
 
         DrawRectangleLines(0, UI_OFFSET, WINDOW_WIDTH, GRID_SIZE * CELL_SIZE, BLACK);
