@@ -8,7 +8,7 @@
 #include "raylib.h"
 
 // Display Config
-#define GRID_MULT 128
+#define GRID_MULT 32
 
 #define GRID_SIZE (1 * GRID_MULT)
 #define CELL_SIZE (960 / GRID_MULT)
@@ -26,6 +26,7 @@ typedef enum {
     CELL_TYPE_NONE,
     CELL_TYPE_SAND,
     CELL_TYPE_WATER,
+    CELL_TYPE_OIL,
     CELL_TYPE_LIFE,
     CELL_TYPE_SEED,
     CELL_TYPE_FIRE,
@@ -43,13 +44,15 @@ static Color Cell_Type_color_table[] = {
     [CELL_TYPE_SAND] = BEIGE,
     [CELL_TYPE_FIRE] = ORANGE,
     [CELL_TYPE_NONE] = BACKGROUND_COLOR,
+    [CELL_TYPE_OIL] = BROWN,
 };
-static_assert(ARRAY_LEN(Cell_Type_color_table) == 8, "Cell_Type has change");
+static_assert(ARRAY_LEN(Cell_Type_color_table) == 9, "Cell_Type has change");
 
 static_assert(CELL_TYPE_NONE  == 0, "Cell_Type has change");
 static bool Cell_Type_flamable_table[] = {
     [CELL_TYPE_LIFE] = true,
     [CELL_TYPE_SEED] = true,
+    [CELL_TYPE_OIL] = true,
     [CELL_TYPE_WATER] = false,
     [CELL_TYPE_BEDROCK] = false,
     [CELL_TYPE_ROCK] = false,
@@ -57,7 +60,7 @@ static bool Cell_Type_flamable_table[] = {
     [CELL_TYPE_FIRE] = false,
     [CELL_TYPE_NONE] = false,
 };
-static_assert(ARRAY_LEN(Cell_Type_color_table) == 8, "Cell_Type has change");
+static_assert(ARRAY_LEN(Cell_Type_color_table) == 9, "Cell_Type has change");
 
 typedef struct {
     Rectangle rect;
@@ -83,6 +86,7 @@ static inline Cell* Grid_get_cell(Grid *grid, size_t pos) {
 
 void UpdateSand(Grid*grid, Cell*c, int col, int row);
 void UpdateWater(Grid*grid, Cell*c, int col, int row);
+void UpdateOil(Grid*grid, Cell*c, int col, int row);
 void UpdateLife(Grid*grid, Cell*c, int col, int row);
 void UpdateSeed(Grid*grid, Cell*c, int col, int row);
 void UpdateFire(Grid*grid, Cell*c, int col, int row);
@@ -98,16 +102,19 @@ static CellUpdateFn update_table[] = {
     [CELL_TYPE_NONE] = NULL,
     [CELL_TYPE_SAND] = UpdateSand,
     [CELL_TYPE_WATER] = UpdateWater,
+    [CELL_TYPE_OIL] = UpdateOil,
     [CELL_TYPE_LIFE] = UpdateLife,
     [CELL_TYPE_SEED] = UpdateSeed,
     [CELL_TYPE_FIRE] = UpdateFire,
     [CELL_TYPE_ROCK] = NULL,
     [CELL_TYPE_BEDROCK] = NULL,
 };
-static_assert(ARRAY_LEN(update_table) == 8, "update_table has change");
+static_assert(ARRAY_LEN(update_table) == 9, "update_table has change");
 
-static inline void Update(Grid*grid, Cell*c, int col, int row) {
+static inline void Grid_update(Grid*grid, Cell*c) {
     if (update_table[c->type]) {
+        int col = c->rect.x / (int)CELL_SIZE;
+        int row = (c->rect.y - UI_OFFSET) / (int)CELL_SIZE;
         update_table[c->type](grid, c, col, row);
     }
 }
@@ -125,6 +132,7 @@ int main(void) {
 
     Grid grid = {0};
     char * legend = temp_sprintf("%dx%d Grid", GRID_SIZE, GRID_SIZE);
+    char * controls = "Simulation: P | (-/+) / Elements: Q | W | S | R | E | F | T ";
     size_t frameCounter = 0;
     size_t simulationSpeed = SIMULATION_SPEED_BASE;
     bool simulationPaused = false;
@@ -151,6 +159,7 @@ int main(void) {
         if(IsKeyDown(KEY_R)) curr_place_type = CELL_TYPE_ROCK;
         if(IsKeyDown(KEY_E)) curr_place_type = CELL_TYPE_SEED;
         if(IsKeyDown(KEY_F)) curr_place_type = CELL_TYPE_FIRE;
+        if(IsKeyDown(KEY_T)) curr_place_type = CELL_TYPE_OIL;
         if(IsKeyPressed(KEY_P)) simulationPaused = !simulationPaused;
         if(IsKeyPressed(KEY_EQUAL)) simulationSpeed = (simulationSpeed > SIMULATION_SPEED_BASE ? simulationSpeed - 1 : SIMULATION_SPEED_BASE);
         if(IsKeyPressed(KEY_MINUS)) simulationSpeed++;
@@ -162,9 +171,7 @@ int main(void) {
             frameCounter = 0;
             da_foreach_rev(Cell, c, &grid) {
                 if(c->updated) continue;
-                int col = c->rect.x / (int)CELL_SIZE;
-                int row = (c->rect.y - UI_OFFSET) / (int)CELL_SIZE;
-                Update(&grid, c, col, row);
+                Grid_update(&grid, c);
             }
         }
 
@@ -173,6 +180,7 @@ int main(void) {
         ClearBackground(BACKGROUND_COLOR);
 
         DrawText(legend, 10, 10, 20, WHITE);
+        DrawText(controls, 140, 10, 20, WHITE);
 
         da_foreach(Cell, it, &grid) {
             it->updated = false;
@@ -254,7 +262,28 @@ void UpdateSand(Grid*grid, Cell*c, int col, int row) {
     if (row < GRID_SIZE - 1) {
         size_t down = col + (row+1) * GRID_SIZE;
         if (grid->items[down].type == CELL_TYPE_WATER && SwapCell(grid, pos, down)) return;
+        if (grid->items[down].type == CELL_TYPE_OIL && SwapCell(grid, pos, down)) return;
     }
+}
+
+void UpdateOil(Grid*grid, Cell*c, int col, int row) {
+    c->updated = true;
+    size_t pos = col + row * GRID_SIZE;
+    size_t down = col + (row+1) * GRID_SIZE;
+    size_t top = col + (row-1) * GRID_SIZE;
+
+    if (TryMoveCell(grid, pos, down, CELL_TYPE_NONE)) return;
+
+    int dir = GetRandomValue(0, 1) == 0 ? -1 : 1;
+    size_t side = (col+dir) + row * GRID_SIZE;
+    if (TryMoveCell(grid, pos, side, CELL_TYPE_NONE)) return;
+
+    dir = GetRandomValue(0, 1) == 0 ? -1 : 1;
+    size_t down_side = (col+dir) + (row+1) * GRID_SIZE;
+    if (TryMoveCell(grid, pos, down_side,  CELL_TYPE_NONE)) return;
+
+    if (grid->items[top].type == CELL_TYPE_WATER && SwapCell(grid, pos, top)) return;
+    if (grid->items[top].type == CELL_TYPE_SAND && SwapCell(grid, pos, top)) return;
 }
 
 void UpdateFire(Grid*grid, Cell*c, int col, int row) {
@@ -265,10 +294,42 @@ void UpdateFire(Grid*grid, Cell*c, int col, int row) {
     size_t left = (col-1) + row * GRID_SIZE;
     size_t right = (col+1) + row * GRID_SIZE;
 
-    if(Cell_Type_flamable_table[grid->items[down].type]  && SwapCell(grid, pos, down)) c->type = CELL_TYPE_NONE;
-    if(Cell_Type_flamable_table[grid->items[top].type]   && SwapCell(grid, pos, top)) c->type = CELL_TYPE_NONE;
-    if(Cell_Type_flamable_table[grid->items[left].type]  && SwapCell(grid, pos, left)) c->type = CELL_TYPE_NONE;
-    if(Cell_Type_flamable_table[grid->items[right].type] && SwapCell(grid, pos, right)) c->type = CELL_TYPE_NONE;
+    int dir = GetRandomValue(0, 1) == 0 ? -1 : 1;
+    size_t side = (col+dir) + row * GRID_SIZE;
+
+    dir = GetRandomValue(0, 1) == 0 ? -1 : 1;
+    size_t down_side = (col+dir) + (row+1) * GRID_SIZE;
+
+    if(Cell_Type_flamable_table[grid->items[top].type] && SwapCell(grid, pos, top)) {
+        c->type = CELL_TYPE_NONE;
+        return;
+    }
+    if(Cell_Type_flamable_table[grid->items[down].type] && SwapCell(grid, pos, down)) {
+        c->type = CELL_TYPE_NONE;
+        TryMoveCell(grid, pos, down, CELL_TYPE_NONE);
+        return;
+    }
+    if(Cell_Type_flamable_table[grid->items[left].type] && SwapCell(grid, pos, left)) {
+        c->type = CELL_TYPE_NONE;
+        TryMoveCell(grid, pos, left, CELL_TYPE_NONE);
+        return;
+    }
+    if(Cell_Type_flamable_table[grid->items[right].type] && SwapCell(grid, pos, right)) {
+        c->type = CELL_TYPE_NONE;
+        TryMoveCell(grid, pos, right, CELL_TYPE_NONE);
+        return;
+    }
+    if(Cell_Type_flamable_table[grid->items[side].type] && SwapCell(grid, pos, side)) {
+        c->type = CELL_TYPE_NONE;
+        TryMoveCell(grid, pos, side, CELL_TYPE_NONE);
+        return;
+    }
+    if(Cell_Type_flamable_table[grid->items[down_side].type] && SwapCell(grid, pos, down_side)) {
+        c->type = CELL_TYPE_NONE;
+        TryMoveCell(grid, pos, down_side,  CELL_TYPE_NONE);
+        return;
+    }
+    if (TryMoveCell(grid, pos, down, CELL_TYPE_NONE)) return;
     c->type = CELL_TYPE_NONE;
 }
 
