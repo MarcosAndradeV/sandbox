@@ -3,11 +3,12 @@
 #include "nob.h"
 // Extending nob_da_foreach idea
 #define da_foreach_rev(Type, it, da) for (Type *it = (da)->items+(da)->count-1; it > (da)->items; --it)
+#define unwrap_null(x) NOB_ASSERT(x && "unwrap null pointer")
 
 #include "raylib.h"
 
 // Display Config
-#define GRID_MULT 32
+#define GRID_MULT 128
 
 #define GRID_SIZE (1 * GRID_MULT)
 #define CELL_SIZE (960 / GRID_MULT)
@@ -26,6 +27,8 @@ typedef enum {
     CELL_TYPE_SAND,
     CELL_TYPE_WATER,
     CELL_TYPE_LIFE,
+    CELL_TYPE_SEED,
+    CELL_TYPE_FIRE,
     CELL_TYPE_ROCK,
     CELL_TYPE_BEDROCK,
 } Cell_Type;
@@ -36,10 +39,25 @@ static Color Cell_Type_color_table[] = {
     [CELL_TYPE_ROCK] = GRAY,
     [CELL_TYPE_WATER] = BLUE,
     [CELL_TYPE_LIFE] = GREEN,
+    [CELL_TYPE_SEED] = DARKGREEN,
     [CELL_TYPE_SAND] = BEIGE,
+    [CELL_TYPE_FIRE] = ORANGE,
     [CELL_TYPE_NONE] = BACKGROUND_COLOR,
 };
-static_assert(ARRAY_LEN(Cell_Type_color_table) == 6, "Cell_Type has change");
+static_assert(ARRAY_LEN(Cell_Type_color_table) == 8, "Cell_Type has change");
+
+static_assert(CELL_TYPE_NONE  == 0, "Cell_Type has change");
+static bool Cell_Type_flamable_table[] = {
+    [CELL_TYPE_LIFE] = true,
+    [CELL_TYPE_SEED] = true,
+    [CELL_TYPE_WATER] = false,
+    [CELL_TYPE_BEDROCK] = false,
+    [CELL_TYPE_ROCK] = false,
+    [CELL_TYPE_SAND] = false,
+    [CELL_TYPE_FIRE] = false,
+    [CELL_TYPE_NONE] = false,
+};
+static_assert(ARRAY_LEN(Cell_Type_color_table) == 8, "Cell_Type has change");
 
 typedef struct {
     Rectangle rect;
@@ -57,14 +75,23 @@ typedef struct {
     size_t capacity, count;
 } Grid;
 
+static inline Cell* Grid_get_cell(Grid *grid, size_t pos) {
+    if(pos < grid->count) return &grid->items[pos];
+    // unwrap_null(NULL);
+    return NULL;
+}
+
 void UpdateSand(Grid*grid, Cell*c, int col, int row);
 void UpdateWater(Grid*grid, Cell*c, int col, int row);
 void UpdateLife(Grid*grid, Cell*c, int col, int row);
+void UpdateSeed(Grid*grid, Cell*c, int col, int row);
+void UpdateFire(Grid*grid, Cell*c, int col, int row);
 bool SwapCell(Grid *grid, size_t src_pos, size_t dst_pos);
 bool TryMoveCell(Grid *grid, size_t src_pos, size_t dst_pos, Cell_Type allowed_type);
 int CountNeighbors(Grid *grid, int col, int row, Cell_Type type);
 bool HasNeighbor(Grid *grid, int col, int row, Cell_Type type);
 void UpdateMouseRect(Grid* grid);
+bool TryUpdateSeed(Grid*grid, Cell*c, size_t pos);
 
 typedef void (*CellUpdateFn)(Grid*, Cell*, int, int);
 static CellUpdateFn update_table[] = {
@@ -72,10 +99,12 @@ static CellUpdateFn update_table[] = {
     [CELL_TYPE_SAND] = UpdateSand,
     [CELL_TYPE_WATER] = UpdateWater,
     [CELL_TYPE_LIFE] = UpdateLife,
+    [CELL_TYPE_SEED] = UpdateSeed,
+    [CELL_TYPE_FIRE] = UpdateFire,
     [CELL_TYPE_ROCK] = NULL,
     [CELL_TYPE_BEDROCK] = NULL,
 };
-static_assert(ARRAY_LEN(update_table) == 6, "update_table has change");
+static_assert(ARRAY_LEN(update_table) == 8, "update_table has change");
 
 static inline void Update(Grid*grid, Cell*c, int col, int row) {
     if (update_table[c->type]) {
@@ -119,8 +148,9 @@ int main(void) {
         if(IsKeyDown(KEY_Q)) curr_place_type = CELL_TYPE_NONE;
         if(IsKeyDown(KEY_W)) curr_place_type = CELL_TYPE_WATER;
         if(IsKeyDown(KEY_S)) curr_place_type = CELL_TYPE_SAND;
-        if(IsKeyDown(KEY_E)) curr_place_type = CELL_TYPE_ROCK;
-        if(IsKeyDown(KEY_R)) curr_place_type = CELL_TYPE_LIFE;
+        if(IsKeyDown(KEY_R)) curr_place_type = CELL_TYPE_ROCK;
+        if(IsKeyDown(KEY_E)) curr_place_type = CELL_TYPE_SEED;
+        if(IsKeyDown(KEY_F)) curr_place_type = CELL_TYPE_FIRE;
         if(IsKeyPressed(KEY_P)) simulationPaused = !simulationPaused;
         if(IsKeyPressed(KEY_EQUAL)) simulationSpeed = (simulationSpeed > SIMULATION_SPEED_BASE ? simulationSpeed - 1 : SIMULATION_SPEED_BASE);
         if(IsKeyPressed(KEY_MINUS)) simulationSpeed++;
@@ -174,7 +204,8 @@ void UpdateMouseRect(Grid* grid) {
 
     size_t pos = col + row * GRID_SIZE;
     if(pos >= grid->count) return;
-    Cell* c = &grid->items[pos];
+    Cell *c = Grid_get_cell(grid, pos);
+    unwrap_null(c);
     if(c->type == CELL_TYPE_BEDROCK) return;
     if(CheckCollisionRecs(c->rect, mouse_rect)) c->type = curr_place_type;
 }
@@ -197,8 +228,8 @@ bool SwapCell(Grid *grid, size_t src_pos, size_t dst_pos) {
 bool TryMoveCell(Grid *grid, size_t src_pos, size_t dst_pos, Cell_Type allowed_type) {
     if (dst_pos >= grid->count) return false;
 
-    Cell *src = &grid->items[src_pos];
-    Cell *dst = &grid->items[dst_pos];
+    Cell *src = Grid_get_cell(grid, src_pos);
+    Cell *dst = Grid_get_cell(grid, dst_pos);
 
     if (dst->type == allowed_type) {
         dst->type = src->type;
@@ -224,6 +255,49 @@ void UpdateSand(Grid*grid, Cell*c, int col, int row) {
         size_t down = col + (row+1) * GRID_SIZE;
         if (grid->items[down].type == CELL_TYPE_WATER && SwapCell(grid, pos, down)) return;
     }
+}
+
+void UpdateFire(Grid*grid, Cell*c, int col, int row) {
+    c->updated = true;
+    size_t pos = col + row * GRID_SIZE;
+    size_t down = col + (row+1) * GRID_SIZE;
+    size_t top = col + (row-1) * GRID_SIZE;
+    size_t left = (col-1) + row * GRID_SIZE;
+    size_t right = (col+1) + row * GRID_SIZE;
+
+    if(Cell_Type_flamable_table[grid->items[down].type]  && SwapCell(grid, pos, down)) c->type = CELL_TYPE_NONE;
+    if(Cell_Type_flamable_table[grid->items[top].type]   && SwapCell(grid, pos, top)) c->type = CELL_TYPE_NONE;
+    if(Cell_Type_flamable_table[grid->items[left].type]  && SwapCell(grid, pos, left)) c->type = CELL_TYPE_NONE;
+    if(Cell_Type_flamable_table[grid->items[right].type] && SwapCell(grid, pos, right)) c->type = CELL_TYPE_NONE;
+    c->type = CELL_TYPE_NONE;
+}
+
+bool TryUpdateSeed(Grid *grid, Cell *c, size_t pos) {
+    if (pos >= grid->count) return false;
+    Cell *other = Grid_get_cell(grid, pos);
+    if (other->type == CELL_TYPE_WATER) {
+        other->type = CELL_TYPE_LIFE;
+        other->updated = true;
+        c->type = CELL_TYPE_NONE;
+        return true;
+    }
+    return false;
+}
+
+void UpdateSeed(Grid*grid, Cell*c, int col, int row) {
+    c->updated = true;
+    size_t pos = col + row * GRID_SIZE;
+
+    size_t down = col + (row+1) * GRID_SIZE;
+    if (TryUpdateSeed(grid, c, down)) return;
+    if (TryMoveCell(grid, pos, down, CELL_TYPE_NONE)) return;
+
+    int side = GetRandomValue(0, 1) ? -1 : 1;
+    size_t down_side = (col+(side)) + (row+1) * GRID_SIZE;
+    if (TryUpdateSeed(grid, c, down_side)) return;
+    if (TryMoveCell(grid, pos, down_side, CELL_TYPE_NONE)) return;
+    size_t top = col + (row-1) * GRID_SIZE;
+    if (TryUpdateSeed(grid, c, top)) return;
 }
 
 void UpdateWater(Grid*grid, Cell*c, int col, int row) {
@@ -279,10 +353,10 @@ void UpdateLife(Grid*grid, Cell*c, int col, int row) {
     }
     if (row < GRID_SIZE - 1) {
         size_t down = col + (row+1) * GRID_SIZE;
-        if (grid->items[down].type == CELL_TYPE_NONE && HasNeighbor(grid, col, row+1, CELL_TYPE_WATER)) {
-            // candidates[count++] = down;
-            grid->items[down].type = CELL_TYPE_LIFE;
-            grid->items[down].updated = true;
+        Cell *down_cell = Grid_get_cell(grid, down);
+        if (down_cell->type == CELL_TYPE_NONE && HasNeighbor(grid, col, row+1, CELL_TYPE_WATER)) {
+            down_cell->type = CELL_TYPE_LIFE;
+            down_cell->updated = true;
             return;
         }
     }
@@ -303,7 +377,8 @@ void UpdateLife(Grid*grid, Cell*c, int col, int row) {
 
     int choice = GetRandomValue(0, count-1);
     size_t chosen = candidates[choice];
+    Cell *chosen_cell = Grid_get_cell(grid, chosen);
 
-    grid->items[chosen].type = CELL_TYPE_LIFE;
-    grid->items[chosen].updated = true;
+    chosen_cell->type = CELL_TYPE_LIFE;
+    chosen_cell->updated = true;
 }
