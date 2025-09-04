@@ -20,9 +20,7 @@ int main(int argc, char** argv) {
     Cmd cmd = {0};
 
     if(!mkdir_if_not_exists(BUILD_DIR)) return 1;
-    if(!file_exists(BIN_PATH) || nob_needs_rebuild1(BIN_PATH, SRC_PATH)) {
-        if(!build_game(&cmd)) return 1;
-    }
+    if(!build_game(&cmd)) return 1;
 
     if(argc <= 1) return 0;
 
