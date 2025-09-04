@@ -1,6 +1,10 @@
-#define NOB_IMPLEMENTATION
 #define NOB_STRIP_PREFIX
+#define NOB_IMPLEMENTATION
 #include "nob.h"
+
+#define ECS_IMPLEMENTATION
+#include "ecs.h"
+
 // Extending nob_da_foreach idea
 #define da_foreach_rev(Type, it, da) for (Type *it = (da)->items+(da)->count-1; it > (da)->items; --it)
 #define unwrap_null(x) NOB_ASSERT(x && "unwrap null pointer")
